@@ -22,7 +22,10 @@ class SaleSubscriptionStage(models.Model):
             ("in_progress", "In progress"),
             ("post", "Closed"),
         ],
-        default="pre",
+        #TODO: OVERIDE FIELD IN MODULE
+        # default="pre",
+        required=True,
+        default="draft",
     )
 
     @api.constrains("type")

@@ -15,7 +15,7 @@ class SaleSubscription(models.Model):
     _name = "sale.subscription"
     _description = "Subscription"
     _inherit = ["mail.thread", "mail.activity.mixin"]
-    _order = "id desc"
+    _order = "recurring_next_date ASC, commercial_partner_id, id desc" #TODO: OVERIDE CLASS ORDER IN SEPARATE MODULE
 
     color = fields.Integer("Color Index")
     name = fields.Char(
@@ -33,6 +33,15 @@ class SaleSubscription(models.Model):
     partner_id = fields.Many2one(
         comodel_name="res.partner", required=True, string="Partner", index=True
     )
+    #TODO: OVERIDE FIELD IN SEPARATE MODULE
+    commercial_partner_id = fields.Many2one(
+        comodel_name="res.partner",
+        string="Commercial Entity",
+        compute_sudo=True,
+        related="partner_id.commercial_partner_id",
+        index=True,
+        store=True,
+    )
     fiscal_position_id = fields.Many2one(
         "account.fiscal.position",
         string="Fiscal Position",
@@ -49,7 +58,15 @@ class SaleSubscription(models.Model):
         string="Reference",
         default=lambda self: self.env["ir.sequence"].next_by_code("sale.subscription"),
     )
-    in_progress = fields.Boolean(string="In progress", default=False)
+    #TODO: OVERIDE FIELD IN SEPARATE MODULE
+    in_progress = fields.Boolean(
+        string="In progress",
+        compute="_compute_status",
+        readonly=False,
+        index=True,
+        store=True,
+        copy=False,
+    )
     recurring_rule_boundary = fields.Boolean(
         string="Boundary", compute="_compute_rule_boundary", store=True
     )
@@ -109,12 +126,23 @@ class SaleSubscription(models.Model):
         stage_ids = stages.search([], order=order)
         return stage_ids
 
+    #TODO: OVERIDE CLASS WITH METHOD AND FIELD OVERIDE IN SEPARATE MODULE
+    def _get_default_stage_id(self):
+        """Gives default stage_id"""
+        first_stage = self.env["sale.subscription.stage"].search(
+            [("type", "=", "draft")], order="sequence"
+        )
+        return first_stage[:1]
+
     stage_id = fields.Many2one(
         comodel_name="sale.subscription.stage",
         string="Stage",
         tracking=True,
         group_expand="_read_group_stage_ids",
+        required=True,
         store=True,
+        default=_get_default_stage_id,
+        copy=False,
     )
     stage_str = fields.Char(
         related="stage_id.name",
@@ -161,6 +189,15 @@ class SaleSubscription(models.Model):
             ):
                 subscription.action_start_subscription()
                 subscription.generate_invoice()
+    
+    #TODO: ADD METHOD IN SEPARATE MODULE
+    @api.depends("stage_id")
+    def _compute_status(self):
+        for record in self:
+            in_progress = False
+            if record.stage_id and record.stage_id.type == "in_progress":
+                in_progress = True
+            record.in_progress = in_progress
 
     @api.depends("sale_subscription_line_ids")
     def _compute_total(self):
@@ -185,7 +222,8 @@ class SaleSubscription(models.Model):
             slash = "/" if template_code and code else ""
             record.name = "{}{}{}".format(template_code, slash, code)
 
-    @api.depends("template_id", "date_start")
+    #TODO: OVERIDE DEPEND IN SEPARATE MODULE
+    @api.depends("template_id", "date_start", "stage_id")
     def _compute_rule_boundary(self):
         for record in self:
             if record.template_id.recurring_rule_boundary == "unlimited":
@@ -238,7 +276,7 @@ class SaleSubscription(models.Model):
     def action_start_subscription(self):
         self.close_reason_id = False
         in_progress_stage = self.env["sale.subscription.stage"].search(
-            [("type", "=", "in_progress")], limit=1
+            [("type", "=", "in_progress")], order="sequence", limit=1 #TODO: OVERIDE ORDER IN SEPARATE MODULE
         )
         self.stage_id = in_progress_stage
 
@@ -280,6 +318,7 @@ class SaleSubscription(models.Model):
             "invoice_date": self.recurring_next_date,
             "invoice_payment_term_id": self.partner_id.property_payment_term_id.id,
             "invoice_origin": self.name,
+            "ref": self.code, #TODO: OVERIDE VALUE IN SEPEARTE MODULE
             "invoice_user_id": self.user_id.id,
             "partner_bank_id": self.company_id.partner_id.bank_ids[:1].id,
             "invoice_line_ids": line_ids,
